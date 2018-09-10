@@ -1,4 +1,4 @@
-from flask import Flask,render_template,flash,request
+from flask import Flask,render_template,flash,request,redirect,url_for
 from flask_sqlalchemy import SQLAlchemy
 from flask_wtf import FlaskForm
 from wtforms import StringField,SubmitField
@@ -33,6 +33,8 @@ db = SQLAlchemy(app)
     c.secret_key/csrf_token
 6.实现相关的增删逻辑
     a.增加书籍
+    b.删除书籍  -- 网页中删除 --点击需要发送书籍的ID--路由需要接受参数
+    c.删除作者
 '''
 
 ##定义书和作者模型
@@ -72,6 +74,63 @@ class AuthorForm(FlaskForm):
     book = StringField('书籍', validators=[DataRequired()])
     submit = SubmitField('提交')
 
+#删除作者
+@app.route('/delete_author/<author_id>')
+def delete_author(author_id):
+    # 查询数据库，是否有该ID的作者，如果有就删除(先删书，再删作者)，没有就提示错误
+    # 1.查询数据库
+    author = Author.query.get(author_id)
+
+    # 2.如果有就删除(先删书，再删作者)
+    if author:
+        try:
+            #查询之后直接删除
+            Book.query.filter_by(author_id=author_id).delete()
+
+            #删除作者
+            db.session.delete(author)
+            db.session.commit()
+
+        except Exception as e:
+            print(e)
+            flash('删除作者出错')
+            db.session.rollback()
+
+    else:
+        flash('作者找不到')
+
+
+    return redirect(url_for('index'))
+
+
+#删除书籍  -- 网页中删除 --点击需要发送书籍的ID--路由需要接受参数
+@app.route('/delete_book/<book_id>')
+def delete_book(book_id):
+
+
+    # 1.查询数据库，是否有该ID的书，如果有就删除，没有就提示错误
+    book = Book.query.get(book_id)
+
+    # 2.如果有就删除
+    if book:
+        try:
+            db.session.delete(book)
+            db.session.commit()
+        except Exception as e:
+            print(e)
+            flash('删除书籍出错')
+            db.SessionExtension.rollback()
+
+    else:
+        # 3.没有提示错误
+        flash('书籍找不到')
+
+    # redirect:重定向，需要传入网络/路由地址
+    # url_for('index'):需要传入视图函数名，返回该视图函数对应的路由地址
+    return redirect(url_for('index'))
+
+
+
 @app.route('/',methods=['GET' , 'POST'])
 def index():
     #创建自定义的表单类
@@ -99,9 +158,34 @@ def index():
 
         #4.如果作者存在
         if author:
-            pass
+            #判断书籍是否存在，没有重复书籍，添加数据
+            book = Book.query.filter_by(name=book_name).first()
+            if book:
+                flash('已存在同名书籍')
+            else:
+                try:
+                    new_book = Book(name=book_name,author_id=author.id)
+                    db.session.add(new_book)
+                    db.session.commit(  )
+                except Exception as e:
+                    print(e)
+                    flash('添加书籍失败')
+                    db.session.rollback() #回滚
         else:
-            pass
+            #5.如果作者不存在，添加作者和书籍
+            try:
+                new_author = Author(name=author_name)
+                db.session.add(new_author)
+                db.session.commit()
+
+                new_book=Book(name=book_name,author_id=new_author.id)
+                db.session.add(new_book)
+                db.session.commit()
+
+            except Exception as e:
+                print(e)
+                flash('添加作者和书籍失败')
+                db.session.rollback()
 
     else:
         if request.method == 'POST':
